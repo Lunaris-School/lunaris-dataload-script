@@ -39,13 +39,14 @@ class SchoolRepository:
         default_password = "senha@123"
 
         self.cursor.execute("INSERT INTO public.genero (nome) VALUES ('Masculino'), ('Feminino'), ('Outro');")
-        self.cursor.execute("INSERT INTO public.role (nome) VALUES ('Admin'), ('Professor'), ('Aluno');")
+        self.cursor.execute("INSERT INTO public.role (nome) VALUES ('ADMIN'), ('PROFESSOR'), ('ALUNO');")
+        self.conn.commit()
 
-        self.cursor.execute("SELECT id FROM public.role WHERE nome = 'Admin'")
+        self.cursor.execute("SELECT id FROM public.role WHERE nome = 'ADMIN'")
         admin_role_id = self.cursor.fetchone()[0]
-        self.cursor.execute("SELECT id FROM public.role WHERE nome = 'Professor'")
+        self.cursor.execute("SELECT id FROM public.role WHERE nome = 'PROFESSOR'")
         professor_role_id = self.cursor.fetchone()[0]
-        self.cursor.execute("SELECT id FROM public.role WHERE nome = 'Aluno'")
+        self.cursor.execute("SELECT id FROM public.role WHERE nome = 'ALUNO'")
         aluno_role_id = self.cursor.fetchone()[0]
 
         admin = self.factory.generate_person()
@@ -126,6 +127,7 @@ class SchoolRepository:
             aluno_cpfs.append(a["cpf"])
             turma_id = (idx % num_turmas) + 1
             aluno_password_hash = _bcrypt_hash(default_password)
+            genero_id = random.randint(1, 3)
             self.cursor.execute(
                 """
                 INSERT INTO public.aluno (cpf, nome, matricula, email, senha, genero_id, role_id, turma_id)
@@ -137,7 +139,7 @@ class SchoolRepository:
                     a["matricula"],
                     a["email"],
                     aluno_password_hash,
-                    a["genero_id"],
+                    genero_id,
                     aluno_role_id,
                     turma_id,
                 ),
