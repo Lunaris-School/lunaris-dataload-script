@@ -22,7 +22,8 @@ class SchoolRepository:
             "pre_cadastro",
             "observacoes",
             "boletim",
-            "turma_disciplina_professor",
+            "turma_professor",
+            "turma_disciplina",
             "aluno",
             "administrador",
             "professor",
@@ -110,6 +111,7 @@ class SchoolRepository:
         series = ["9º Ano", "1º Ano Médio", "2º Ano Médio", "3º Ano Médio"]
         letras = ["A", "B", "C", "D", "E", "F"]
 
+        turma_ids: list[int] = []
         for i in range(num_turmas):
             serie_idx = i % len(series)
             letra_idx = i // len(series)
@@ -118,14 +120,44 @@ class SchoolRepository:
 
             nome_turma = f"{series[serie_idx]} {letras[letra_idx]}"
             self.cursor.execute(
-                "INSERT INTO public.turma (nome, ano_letivo) VALUES (%s, 2026)", (nome_turma,)
+                """
+                INSERT INTO public.turma (nome, ano_letivo)
+                VALUES (%s, 2026)
+                RETURNING id
+                """,
+                (nome_turma,),
+            )
+            turma_ids.append(self.cursor.fetchone()[0])
+
+        turma_disciplina_map = {}
+        for idx, turma_id in enumerate(turma_ids):
+            disciplina_id = disciplina_ids[idx % len(disciplina_ids)]
+            self.cursor.execute(
+                """
+                INSERT INTO public.turma_disciplina (turma_id, disciplina_id)
+                VALUES (%s, %s)
+                """,
+                (turma_id, disciplina_id),
+            )
+            turma_disciplina_map[turma_id] = disciplina_id
+
+        for i, cpf in enumerate(prof_cpfs):
+            turma_id = turma_ids[i % len(turma_ids)]
+            self.cursor.execute(
+                """
+                INSERT INTO public.turma_professor (turma_id, professor_cpf)
+                VALUES (%s, %s)
+                """,
+                (turma_id, cpf),
             )
 
         aluno_cpfs = []
         for idx in range(num_alunos):
             a = self.factory.generate_student()
             aluno_cpfs.append(a["cpf"])
-            turma_id = (idx % num_turmas) + 1
+
+            turma_id = turma_ids[idx % len(turma_ids)]
+
             aluno_password_hash = _bcrypt_hash(default_password)
             genero_id = random.randint(1, 3)
             self.cursor.execute(
@@ -148,40 +180,33 @@ class SchoolRepository:
             if random.random() < 0.3:
                 self.cursor.execute(
                     """
-                    INSERT INTO public.pre_cadastro (aluno_cpf, data_autorizacao)
-                    VALUES (%s, CURRENT_DATE)
+                    INSERT INTO public.pre_cadastro (aluno_cpf, data_autorizacao, nome)
+                    VALUES (%s, CURRENT_TIMESTAMP, %s)
                     """,
-                    (a["cpf"],),
+                    (a["cpf"], a["nome"]),
                 )
 
-        for i, cpf in enumerate(prof_cpfs):
-            turma_id = (i % num_turmas) + 1
-            disciplina_id = disciplina_ids[i % len(disciplina_ids)]
-            self.cursor.execute(
-                """
-                INSERT INTO public.turma_disciplina_professor (turma_id, disciplina_id, professor_cpf)
-                VALUES (%s, %s, %s)
-                """,
-                (turma_id, disciplina_id, cpf),
-            )
-
-            alunos_da_turma = [
-                a_cpf
-                for a_idx, a_cpf in enumerate(aluno_cpfs)
-                if ((a_idx % num_turmas) + 1) == turma_id
+        for turma_id in turma_ids:
+            profs_da_turma = [
+                cpf
+                for i, cpf in enumerate(prof_cpfs)
+                if turma_ids[i % len(turma_ids)] == turma_id
             ]
+            professor_cpf = profs_da_turma[0] if profs_da_turma else random.choice(prof_cpfs)
+
+            alunos_da_turma = [a_cpf for a_cpf in aluno_cpfs if self._get_aluno_turma_id(a_cpf) == turma_id]
             for a_cpf in random.sample(alunos_da_turma, k=min(2, len(alunos_da_turma))):
                 self.cursor.execute(
                     """
                     INSERT INTO public.observacoes (aluno_cpf, professor_cpf, observacao)
                     VALUES (%s, %s, %s)
                     """,
-                    (a_cpf, cpf, "Participação e desempenho acompanhados."),
+                    (a_cpf, professor_cpf, "Participação e desempenho acompanhados."),
                 )
 
-
-        for a_idx, a_cpf in enumerate(aluno_cpfs):
-            turma_id = (a_idx % num_turmas) + 1
+        for a_cpf in aluno_cpfs:
+            self.cursor.execute("SELECT turma_id FROM public.aluno WHERE cpf = %s", (a_cpf,))
+            turma_id = self.cursor.fetchone()[0]
 
             if random.random() < 0.7:
                 self.cursor.execute(
@@ -198,12 +223,21 @@ class SchoolRepository:
                 n2 = round(random.uniform(4, 10), 2)
                 media_final = round((n1 + n2) / 2, 2)
 
+                disciplina_id = turma_disciplina_map.get(turma_id) or random.choice(disciplina_ids)
+
                 self.cursor.execute(
                     """
-                    INSERT INTO public.notas (boletim_id, valor_nota, valor_nota2, tipo_avaliacao, data_lancamento)
-                    VALUES (%s, %s, %s, %s, CURRENT_DATE)
+                    INSERT INTO public.notas (
+                        boletim_id,
+                        data_lancamento,
+                        disciplina_id,
+                        tipo_avaliacao,
+                        valor_nota,
+                        valor_nota2
+                    )
+                    VALUES (%s, CURRENT_TIMESTAMP, %s, %s, %s, %s)
                     """,
-                    (boletim_id, n1, n2, "Bimestre"),
+                    (boletim_id, disciplina_id, "Bimestre", n1, n2),
                 )
 
                 self.cursor.execute(
@@ -274,3 +308,8 @@ class SchoolRepository:
         }
 
         return report
+
+    def _get_aluno_turma_id(self, aluno_cpf: int) -> int:
+        """Helper interno para buscar turma_id de um aluno."""
+        self.cursor.execute("SELECT turma_id FROM public.aluno WHERE cpf = %s", (aluno_cpf,))
+        return self.cursor.fetchone()[0]
