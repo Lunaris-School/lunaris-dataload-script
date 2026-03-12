@@ -56,8 +56,6 @@ lunaris-dataload-script/
 └── __pycache__/              # Cache de bytecode Python (gerado automaticamente)
 ```
 
-📖 **[Veja a documentação completa da estrutura](./STRUCTURE.md)**
-
 ## 🛠️ Instalação
 
 ### Pré-requisitos
